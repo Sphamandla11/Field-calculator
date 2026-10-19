@@ -20,12 +20,12 @@ st.markdown(
 # Sidebar Settings
 st.sidebar.header("⚙️ Pricing & Rate Settings")
 diesel_price = st.sidebar.number_input(
-    "Diesel Price (R/L)", value=24.50, step=0.50
+    "Diesel Price (R/L)", value=33.50, step=0.50
 )
 
 st.sidebar.subheader("Default Fuel Burn Rates (Litres / Hectare)")
 burn_rates = {
-    "Plowing": st.sidebar.number_input("Plowing (L/ha)", value=18.0),
+    "Plowing": st.sidebar.number_input("Plowing (L/ha)", value=25.0),
     "Discing": st.sidebar.number_input("Discing (L/ha)", value=12.0),
     "Planting": st.sidebar.number_input("Planting (L/ha)", value=8.0),
     "Spraying": st.sidebar.number_input("Spraying (L/ha)", value=4.5),
@@ -37,16 +37,30 @@ selected_operation = st.sidebar.selectbox(
 
 soil_modifier = st.sidebar.selectbox(
     "Soil / Terrain Condition",
-    ["Normal (1.0x)", "Hard / Dry (+15%)", "Rocky / Sloped (+25%)"],
+    [
+        "Normal (1.0x)",
+        "Hard / Dry (+25%)",
+        "Heavy Clay / Hard Soil (+40%)",
+        "Rocky / Sloped (+50%)",
+    ],
 )
 
 modifier_multiplier = 1.0
-if "Hard" in soil_modifier:
-  modifier_multiplier = 1.15
-elif "Rocky" in soil_modifier:
+if "Hard / Dry" in soil_modifier:
   modifier_multiplier = 1.25
+elif "Heavy Clay" in soil_modifier:
+  modifier_multiplier = 1.40
+elif "Rocky / Sloped" in soil_modifier:
+  modifier_multiplier = 1.50
 
-markup_pct = st.sidebar.slider("Profit & Labor Markup (%)", 0, 50, 20)
+markup_pct = st.sidebar.slider("Profit & Labor Markup (%)", 0, 100, 50)
+
+# Minimum charge control for Plowing (tyre wear & mobilization protection)
+min_plowing_fee = 1600.00
+if selected_operation == "Plowing":
+  min_plowing_fee = st.sidebar.number_input(
+      "Minimum Plowing Base Fee (R)", value=1600.00, step=100.00
+  )
 
 # Main Measurement Modes
 mode = st.radio(
@@ -78,14 +92,13 @@ if mode == "Interactive Map (Draw Multiple Fields)":
   if "center_lon" not in st.session_state:
     st.session_state.center_lon = 30.3323
 
-  # Location search
-  col1, col2 = st.columns([3, 1])
-  with col1:
-    search_query = st.text_input(
-        "Search Location / Town", "Utrecht KwaZulu-Natal"
-    )
-  with col2:
-    search_btn = st.button("Search Location")
+  # Mobile-friendly stacked search layout
+  search_query = st.text_input(
+      "Search Location / Town",
+      value="Utrecht KwaZulu-Natal",
+      key="search_location_input",
+  )
+  search_btn = st.button("🔍 Search Location", use_container_width=True)
 
   if search_btn and search_query:
     try:
@@ -137,7 +150,7 @@ if mode == "Interactive Map (Draw Multiple Fields)":
   draw.add_to(m)
 
   # Render Map in Streamlit
-  output = st_folium(m, width="100%", height=500, key="map")
+  output = st_folium(m, width="100%", height=450, key="map")
 
   # Process Map Drawings and Combine Areas
   if output and "all_drawings" in output and output["all_drawings"]:
@@ -192,6 +205,13 @@ total_fuel_litres = total_area_hectares * adjusted_burn_rate
 total_diesel_cost = total_fuel_litres * diesel_price
 markup_amount = total_diesel_cost * (markup_pct / 100.0)
 final_quotation = total_diesel_cost + markup_amount
+
+# Apply Minimum Plowing Rule if selected
+min_applied = False
+if selected_operation == "Plowing" and final_quotation < min_plowing_fee:
+  final_quotation = min_plowing_fee
+  min_applied = True
+
 per_hectare_quote = (
     final_quotation / total_area_hectares if total_area_hectares > 0 else 0
 )
@@ -205,11 +225,18 @@ col2.metric("Fuel Needed", f"{total_fuel_litres:.1f} L")
 col3.metric("Diesel Expense", f"R {total_diesel_cost:,.2f}")
 col4.metric(
     "Recommended Quote",
-    f"R {final_quotation:,.2f}",
+    f"R {final_quotation:,.2f}"
+    + (" (Min Floor)" if min_applied else ""),
     delta=f"R {per_hectare_quote:,.2f}/ha",
 )
 
 with st.expander("🔍 View Itemized Financial Breakdown"):
+  min_note = (
+      f"- **Minimum Plowing Fee Floor:** R {min_plowing_fee:,.2f} applied to"
+      " protect equipment & tyre wear."
+      if min_applied
+      else ""
+  )
   st.markdown(f"""
     - **Operation Type:** {selected_operation}
     - **Base Burn Rate:** {base_burn_rate} L/ha
@@ -219,5 +246,6 @@ with st.expander("🔍 View Itemized Financial Breakdown"):
     - **Diesel Cost Rate:** R {diesel_price:.2f} / Litre
     - **Base Fuel Expense:** R {total_diesel_cost:,.2f}
     - **Profit & Labor Markup ({markup_pct}%):** R {markup_amount:,.2f}
+    {min_note}
     - **Final Client Quotation:** R {final_quotation:,.2f}
     """)
