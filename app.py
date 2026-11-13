@@ -266,15 +266,13 @@ min_applied = False
 travel_cost = distance_km * travel_rate_per_km
 
 if selected_operation == "Combined Full Job (Plow + Disc + Plant)":
-  plow_fuel = (
-      total_area_hectares * burn_rates["Plowing"] * modifier_multiplier
-  )
-  disc_fuel = (
-      total_area_hectares * burn_rates["Discing"] * modifier_multiplier
-  )
-  plant_fuel = (
-      total_area_hectares * burn_rates["Planting"] * modifier_multiplier
-  )
+  plow_rate_adj = burn_rates["Plowing"] * modifier_multiplier
+  disc_rate_adj = burn_rates["Discing"] * modifier_multiplier
+  plant_rate_adj = burn_rates["Planting"] * modifier_multiplier
+
+  plow_fuel = total_area_hectares * plow_rate_adj
+  disc_fuel = total_area_hectares * disc_rate_adj
+  plant_fuel = total_area_hectares * plant_rate_adj
   total_fuel_litres = plow_fuel + disc_fuel + plant_fuel
 
   total_diesel_cost = total_fuel_litres * diesel_price
@@ -321,16 +319,38 @@ col4.metric(
 )
 
 with st.expander("🔍 View Itemized Financial Breakdown", expanded=True):
-  breakdown_text = f"""
-    - **Selected Operation / Package:** {selected_operation}
+  if selected_operation == "Combined Full Job (Plow + Disc + Plant)":
+    breakdown_text = f"""
+    - **Operation Package:** {selected_operation}
+    - **Plowing Effective Rate:** {plow_rate_adj:.2f} L/ha
+    - **Discing Effective Rate:** {disc_rate_adj:.2f} L/ha
+    - **Planting Effective Rate:** {plant_rate_adj:.2f} L/ha
+    - **Terrain/Soil Modifier:** {soil_modifier} (Multiplier: {modifier_multiplier:.1f}x)
     - **Total Diesel Required:** {total_fuel_litres:.2f} Litres
-    - **Diesel Unit Price:** R {diesel_price:.2f} / Litre
-    - **Base Fuel Expense:** R {total_diesel_cost:,.2f}
+    - **Diesel Cost Rate:** R {diesel_price:.2f} / Litre
+    - **Base Field Fuel Expense:** R {total_diesel_cost:,.2f}
     - **Profit & Labor Markup ({markup_pct}%):** R {markup_amount:,.2f}
     """
-  if min_applied:
-    breakdown_text += f"    - **Minimum Plowing Fee Floor:** R {min_plowing_fee:,.2f} applied.\n"
-  breakdown_text += f"""    - **Travel & Transport Cost ({distance_km:.1f} km round-trip @ R {travel_rate_per_km:.2f}/km):** R {travel_cost:,.2f}
-    - **Final Client Quotation:** **R {final_quotation:,.2f}**
+    if min_applied:
+      breakdown_text += f"    - **Minimum Plowing Fee Floor:** R {min_plowing_fee:,.2f} applied to protect equipment & tyre wear.<br>\n"
+    breakdown_text += f"""    - **Travel & Transport Cost ({distance_km:.1f} km round-trip @ R {travel_rate_per_km:.2f}/km):** R {travel_cost:,.2f}
+    - **Final Client Quotation:** R {final_quotation:,.2f}
     """
-  st.markdown(breakdown_text)
+    st.markdown(breakdown_text)
+  else:
+    breakdown_text = f"""
+    - **Operation Type:** {selected_operation}
+    - **Base Burn Rate:** {base_burn_rate:.2f} L/ha
+    - **Terrain/Soil Modifier:** {soil_modifier} (Multiplier: {modifier_multiplier:.1f}x)
+    - **Effective Burn Rate:** {adjusted_burn_rate:.2f} L/ha
+    - **Total Diesel Required:** {total_fuel_litres:.2f} Litres
+    - **Diesel Cost Rate:** R {diesel_price:.2f} / Litre
+    - **Base Field Fuel Expense:** R {total_diesel_cost:,.2f}
+    - **Profit & Labor Markup ({markup_pct}%):** R {markup_amount:,.2f}
+    """
+    if min_applied:
+      breakdown_text += f"    - **Minimum Plowing Fee Floor:** R {min_plowing_fee:,.2f} applied to protect equipment & tyre wear.<br>\n"
+    breakdown_text += f"""    - **Travel & Transport Cost ({distance_km:.1f} km round-trip @ R {travel_rate_per_km:.2f}/km):** R {travel_cost:,.2f}
+    - **Final Client Quotation:** R {final_quotation:,.2f}
+    """
+    st.markdown(breakdown_text)
