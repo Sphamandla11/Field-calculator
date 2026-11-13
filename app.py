@@ -321,15 +321,16 @@ col4.metric(
 )
 
 with st.expander("🔍 View Itemized Financial Breakdown", expanded=True):
-  min_note = (
-      f"- **Minimum Plowing Fee Floor:** R {min_plowing_fee:,.2f} applied.<br>"
-      if min_applied
-      else ""
-  )
-  st.markdown(f"""
+  breakdown_text = f"""
     - **Selected Operation / Package:** {selected_operation}
     - **Total Diesel Required:** {total_fuel_litres:.2f} Litres
     - **Diesel Unit Price:** R {diesel_price:.2f} / Litre
     - **Base Fuel Expense:** R {total_diesel_cost:,.2f}
     - **Profit & Labor Markup ({markup_pct}%):** R {markup_amount:,.2f}
-    {min_note}- **Travel & Transport Cost ({distance_km:.1f} km round-trip @ R {travel_rate_per_km:.2f}/km):**
+    """
+  if min_applied:
+    breakdown_text += f"    - **Minimum Plowing Fee Floor:** R {min_plowing_fee:,.2f} applied.\n"
+  breakdown_text += f"""    - **Travel & Transport Cost ({distance_km:.1f} km round-trip @ R {travel_rate_per_km:.2f}/km):** R {travel_cost:,.2f}
+    - **Final Client Quotation:** **R {final_quotation:,.2f}**
+    """
+  st.markdown(breakdown_text)
