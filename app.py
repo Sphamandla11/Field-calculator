@@ -1,7 +1,7 @@
-from geopy.distance import geodesic
-from geopy.geocoders import Nominatim
 import folium
 from folium.plugins import Draw
+from geopy.distance import geodesic
+from geopy.geocoders import Nominatim
 from pyproj import Geod
 import streamlit as st
 from streamlit_folium import st_folium
@@ -14,8 +14,8 @@ st.set_page_config(
 
 st.title("🚜 Tractor Field & Fuel Cost Calculator")
 st.markdown(
-    "Measure fields, trace your exact road travel route, and calculate"
-    " precise operational costs for your John Deere 1120."
+    "Measure fields via map, wheel dimensions, or direct input, and calculate"
+    " complete quotes for your John Deere 1120."
 )
 
 # Sidebar Settings
@@ -33,7 +33,14 @@ burn_rates = {
 }
 
 selected_operation = st.sidebar.selectbox(
-    "Select Operation Type", list(burn_rates.keys())
+    "Select Operation Type",
+    [
+        "Combined Full Job (Plow + Disc + Plant)",
+        "Plowing",
+        "Discing",
+        "Planting",
+        "Spraying",
+    ],
 )
 
 soil_modifier = st.sidebar.selectbox(
@@ -54,25 +61,27 @@ elif "Heavy Clay" in soil_modifier:
 elif "Rocky / Sloped" in soil_modifier:
   modifier_multiplier = 1.50
 
-markup_pct = st.sidebar.slider("Profit & Labor Markup (%)", 0, 100, 50)
+markup_pct = st.sidebar.slider("Profit & Labor Markup (%)", 0, 200, 100)
 
 # Minimum charge control for Plowing (tyre wear & mobilization protection)
-min_plowing_fee = 1600.00
-if selected_operation == "Plowing":
-  min_plowing_fee = st.sidebar.number_input(
-      "Minimum Plowing Base Fee (R)", value=1600.00, step=100.00
-  )
+min_plowing_fee = st.sidebar.number_input(
+    "Minimum Plowing Base Fee (R)", value=1600.00, step=100.00
+)
 
-# Travel / Transport Fee Settings
+# Travel / Transport Fee Settings (Using Total Round-Trip Distance)
 st.sidebar.subheader("🚚 Travel & Transport Fee")
 travel_rate_per_km = st.sidebar.number_input(
-    "Travel Rate (R/km - Round Trip)", value=15.00, step=1.00
+    "Travel Rate (R/km - Total Round Trip)",
+    value=50.00,
+    step=5.00,
+    help="Rate charged per kilometer for the total round-trip distance.",
 )
 
 # Main Measurement Modes
 mode = st.radio(
     "Select Measurement Method",
     [
+        "Rectangular Field (Length & Width in Meters)",
         "Interactive Map (Draw Fields & Trace Road Route)",
         "Direct Hectares & Distance Input",
     ],
@@ -80,32 +89,62 @@ mode = st.radio(
 )
 
 total_area_hectares = 0.0
-hazard_count = 0
 distance_km = 0.0
-
+hazard_count = 0
 geod = Geod(ellps="WGS84")
 
-# Home Base Coordinates (Default set to Utrecht / KZN farm region)
+# Home Base Coordinates (Utrecht / KZN farm region)
 HOME_COORDS = (-27.6585, 30.3323)
 
-if mode == "Interactive Map (Draw Fields & Trace Road Route)":
+if mode == "Rectangular Field (Length & Width in Meters)":
+  st.markdown(
+      "### 📏 Rectangular Field Dimension Input (Measuring Wheel / Tape)"
+  )
+  st.info(
+      "💡 Enter the measured length and width in meters. The app will"
+      " automatically calculate the total square meters and convert it to"
+      " hectares!"
+  )
+
+  col_m1, col_m2 = st.columns(2)
+  with col_m1:
+    field_length_m = st.number_input(
+        "Field Length (meters)", min_value=1.0, value=187.0, step=1.0
+    )
+  with col_m2:
+    field_width_m = st.number_input(
+        "Field Width (meters)", min_value=1.0, value=36.0, step=1.0
+    )
+
+  total_area_m2 = field_length_m * field_width_m
+  total_area_hectares = total_area_m2 / 10000.0
+
+  st.success(
+      f"📐 **Calculated Area:** {field_length_m:,.1f} m × {field_width_m:,.1f} m"
+      f" = {total_area_m2:,.2f} m² (**{total_area_hectares:.3f} hectares**)"
+  )
+
+  distance_km = st.number_input(
+      "Total Round-Trip Travel Distance (km)",
+      min_value=0.0,
+      value=4.5,
+      step=0.5,
+  )
+
+elif mode == "Interactive Map (Draw Fields & Trace Road Route)":
   st.markdown("### 🗺️ Interactive Map & Road Tracing")
   st.info(
       "💡 **How to use:** \n"
-      "1. Use the **Polygon / Rectangle tools** to measure your field"
-      " boundaries.\n"
-      "2. Use the **Line (Polyline) tool** to click along the actual road you"
-      " drive from home to the farm. The app will calculate the exact road"
-      " distance!"
+      "1. Use the **Polygon / Rectangle tools** to measure field boundaries.\n"
+      "2. Use the **Line (Polyline) tool** to trace the round-trip road route"
+      " from home to the client's farm."
   )
 
-  # Initialize map center in session state
   if "center_lat" not in st.session_state:
     st.session_state.center_lat = HOME_COORDS[0]
   if "center_lon" not in st.session_state:
     st.session_state.center_lon = HOME_COORDS[1]
 
-  # Optional search bar for quick town jumps
   search_query = st.text_input(
       "Optional: Quick Town Search (or pan map manually)",
       value="",
@@ -126,14 +165,12 @@ if mode == "Interactive Map (Draw Fields & Trace Road Route)":
     except Exception as e:
       st.error(f"Search error: {e}")
 
-  # Create Folium Map
   m = folium.Map(
       location=[st.session_state.center_lat, st.session_state.center_lon],
       zoom_start=15,
       tiles=None,
   )
 
-  # Add Esri Satellite Imagery
   folium.TileLayer(
       tiles=(
           "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
@@ -147,18 +184,16 @@ if mode == "Interactive Map (Draw Fields & Trace Road Route)":
       max_zoom=19,
   ).add_to(m)
 
-  # Add Home Base Marker on the Map (Blue Marker)
   folium.Marker(
       location=HOME_COORDS,
       popup="Home Base (Your Farm)",
       icon=folium.Icon(color="blue", icon="home", prefix="fa"),
   ).add_to(m)
 
-  # Add Drawing Tools (Enabled polyline for road tracing, polygons for fields, markers for hazards)
   draw = Draw(
       export=False,
       draw_options={
-          "polyline": True,  # Enabled so you can trace roads!
+          "polyline": True,
           "rectangle": True,
           "polygon": True,
           "circle": False,
@@ -169,11 +204,9 @@ if mode == "Interactive Map (Draw Fields & Trace Road Route)":
   )
   draw.add_to(m)
 
-  # Render Map in Streamlit
   output = st_folium(m, width="100%", height=450, key="map")
 
-  # Process Map Drawings (Polygons, Lines/Roads, Hazards)
-  one_way_road_km = 0.0
+  traced_road_km = 0.0
   if output and "all_drawings" in output and output["all_drawings"]:
     for drawing in output["all_drawings"]:
       geom = drawing.get("geometry", {})
@@ -189,29 +222,27 @@ if mode == "Interactive Map (Draw Fields & Trace Road Route)":
         except Exception:
           pass
       elif g_type == "LineString":
-        # Calculate road distance segment by segment
         try:
-          coords = geom["coordinates"]  # list of [lon, lat]
+          coords = geom["coordinates"]
           for i in range(len(coords) - 1):
-            pt1 = (coords[i][1], coords[i][0])  # (lat, lon)
-            pt2 = (coords[i + 1][1], coords[i + 1][0])  # (lat, lon)
-            one_way_road_km += geodesic(pt1, pt2).kilometers
+            pt1 = (coords[i][1], coords[i][0])
+            pt2 = (coords[i + 1][1], coords[i + 1][0])
+            traced_road_km += geodesic(pt1, pt2).kilometers
         except Exception:
           pass
       elif g_type == "Point":
         hazard_count += 1
 
-  # Double the one-way road distance for the round trip
-  if one_way_road_km > 0:
-    distance_km = one_way_road_km * 2
+  if traced_road_km > 0:
+    distance_km = traced_road_km
     st.success(
-        f"🚚 **Road Route Traced!** One-way road distance: ~{one_way_road_km:.1f}"
-        f" km ({distance_km:.1f} km round trip)"
+        f"🚚 **Road Route Traced!** Total Round-Trip Distance: **{distance_km:.1f}"
+        " km**"
     )
   else:
     st.info(
-        "🛤️ *Tip: Select the Line tool (squiggly line icon) on the map to click"
-        " along the road from your home to the customer's farm.*"
+        "🛤️ *Tip: Use the Line tool to trace the round-trip road route to the"
+        " farm.*"
     )
 
   st.success(
@@ -221,34 +252,55 @@ if mode == "Interactive Map (Draw Fields & Trace Road Route)":
 
 else:
   total_area_hectares = st.number_input(
-      "Enter Total Field Area (Hectares)", min_value=0.01, value=5.0, step=0.1
+      "Enter Total Field Area (Hectares)", min_value=0.01, value=0.67, step=0.01
   )
   distance_km = st.number_input(
       "Total Round-Trip Travel Distance (km)",
       min_value=0.0,
-      value=20.0,
-      step=5.0,
+      value=4.5,
+      step=0.5,
   )
 
 # Calculations
-base_burn_rate = burn_rates[selected_operation]
-adjusted_burn_rate = base_burn_rate * modifier_multiplier
-total_fuel_litres = total_area_hectares * adjusted_burn_rate
-total_diesel_cost = total_fuel_litres * diesel_price
-markup_amount = total_diesel_cost * (markup_pct / 100.0)
-
-# Field Operations Subtotal
-field_quotation = total_diesel_cost + markup_amount
-
-# Apply Minimum Plowing Rule if selected
 min_applied = False
-if selected_operation == "Plowing" and field_quotation < min_plowing_fee:
-  field_quotation = min_plowing_fee
-  min_applied = True
-
-# Add Travel / Transport Cost
 travel_cost = distance_km * travel_rate_per_km
-final_quotation = field_quotation + travel_cost
+
+if selected_operation == "Combined Full Job (Plow + Disc + Plant)":
+  plow_fuel = (
+      total_area_hectares * burn_rates["Plowing"] * modifier_multiplier
+  )
+  disc_fuel = (
+      total_area_hectares * burn_rates["Discing"] * modifier_multiplier
+  )
+  plant_fuel = (
+      total_area_hectares * burn_rates["Planting"] * modifier_multiplier
+  )
+  total_fuel_litres = plow_fuel + disc_fuel + plant_fuel
+
+  total_diesel_cost = total_fuel_litres * diesel_price
+  markup_amount = total_diesel_cost * (markup_pct / 100.0)
+  field_quotation = total_diesel_cost + markup_amount
+
+  if field_quotation < min_plowing_fee:
+    field_quotation = min_plowing_fee
+    min_applied = True
+
+  final_quotation = field_quotation + travel_cost
+
+else:
+  base_burn_rate = burn_rates[selected_operation]
+  adjusted_burn_rate = base_burn_rate * modifier_multiplier
+  total_fuel_litres = total_area_hectares * adjusted_burn_rate
+  total_diesel_cost = total_fuel_litres * diesel_price
+  markup_amount = total_diesel_cost * (markup_pct / 100.0)
+
+  field_quotation = total_diesel_cost + markup_amount
+
+  if selected_operation == "Plowing" and field_quotation < min_plowing_fee:
+    field_quotation = min_plowing_fee
+    min_applied = True
+
+  final_quotation = field_quotation + travel_cost
 
 per_hectare_quote = (
     final_quotation / total_area_hectares if total_area_hectares > 0 else 0
@@ -259,8 +311,8 @@ st.subheader("📊 Operational & Financial Summary")
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Field Size", f"{total_area_hectares:.2f} ha")
-col2.metric("Fuel Needed", f"{total_fuel_litres:.1f} L")
-col3.metric("Travel Distance", f"{distance_km:.1f} km")
+col2.metric("Total Fuel Needed", f"{total_fuel_litres:.1f} L")
+col3.metric("Travel Distance", f"{distance_km:.1f} km (Round Trip)")
 col4.metric(
     "Recommended Quote",
     f"R {final_quotation:,.2f}"
@@ -268,23 +320,16 @@ col4.metric(
     delta=f"R {per_hectare_quote:,.2f}/ha",
 )
 
-with st.expander("🔍 View Itemized Financial Breakdown"):
+with st.expander("🔍 View Itemized Financial Breakdown", expanded=True):
   min_note = (
-      f"- **Minimum Plowing Fee Floor:** R {min_plowing_fee:,.2f} applied to"
-      " protect equipment & tyre wear.<br>"
+      f"- **Minimum Plowing Fee Floor:** R {min_plowing_fee:,.2f} applied.<br>"
       if min_applied
       else ""
   )
   st.markdown(f"""
-    - **Operation Type:** {selected_operation}
-    - **Base Burn Rate:** {base_burn_rate} L/ha
-    - **Terrain/Soil Modifier:** {soil_modifier} (Multiplier: {modifier_multiplier}x)
-    - **Effective Burn Rate:** {adjusted_burn_rate:.2f} L/ha
+    - **Selected Operation / Package:** {selected_operation}
     - **Total Diesel Required:** {total_fuel_litres:.2f} Litres
-    - **Diesel Cost Rate:** R {diesel_price:.2f} / Litre
-    - **Base Field Fuel Expense:** R {total_diesel_cost:,.2f}
+    - **Diesel Unit Price:** R {diesel_price:.2f} / Litre
+    - **Base Fuel Expense:** R {total_diesel_cost:,.2f}
     - **Profit & Labor Markup ({markup_pct}%):** R {markup_amount:,.2f}
-    {min_note}
-    - **Travel & Transport Cost ({distance_km:.1f} km road route @ R {travel_rate_per_km:.2f}/km):** R {travel_cost:,.2f}
-    - **Final Client Quotation:** R {final_quotation:,.2f}
-    """)
+    {min_note}- **Travel & Transport Cost ({distance_km:.1f} km round-trip @ R {travel_rate_per_km:.2f}/km):**
